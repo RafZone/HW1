@@ -1,0 +1,434 @@
+package server.startup;
+import server.model.*;
+
+public class Main
+{
+	
+	public static void main(String[]args)
+	{
+		Server server = new Server();
+	}
+	
+}
+package server.model;
+import java.io.IOException;
+import java.net.*;
+import server.controller.*;
+
+public class Server 
+{
+	private static final int PORT = 1234;
+	private static ServerSocket serverSocket;
+	private Controller controller;
+	
+	public Server()
+	{
+		try 
+		{
+			System.out.println("Starting Server...");
+			serverSocket = new ServerSocket(PORT);
+			controller = new Controller();
+		}
+		catch (IOException e)
+		{
+			e.printStackTrace();
+			System.exit(-1);
+		}
+		
+		while(true)
+		{
+			try
+			{
+				Socket clientSocket = serverSocket.accept();
+				System.out.println("New Client");
+				controller.newClient(clientSocket);
+			}
+			catch(IOException e)
+			{
+				System.out.println("Couldn't connect to client. Trying one more time!");
+			}
+		}
+	}
+}
+package server.model;
+import java.util.Random;
+
+public class HangmanGame 
+{
+	private Guess guess;
+	private String[] secretWords = {"home", "school", "book", "headphones", "mobile",
+									"cat", "car", "hello", "window", "jacket"};
+	private String word;
+	private int score;
+	boolean finished;
+	
+	public HangmanGame()
+	{
+		score = 0;
+		finished = true;
+	}
+	
+	public Guess startGame()
+	{
+		word = generateRandomWord();
+		guess = new Guess(word.length(),score);
+		finished = false;
+		return guess;
+	}
+	
+	public Guess userGuess(String userInput)
+	{
+		if(userInput.length()>1)
+		{
+			if(userInput.toLowerCase().equals(word.toLowerCase())) 
+			{
+				correctGuess();
+				for(int i = 0; i<word.length(); i++)
+				{
+					CorrectLetter temp = new CorrectLetter(word.charAt(i), i);
+					this.guess.addLetter(temp);
+				}
+			}
+			
+			else
+			{
+				wrongGuess();
+			}
+		}
+		
+		else if(userInput.length() == 1)
+		{
+			if(word.toLowerCase().contains(userInput.toLowerCase()))
+			{
+				for(int i=0; i<word.length(); i++)
+				{
+					if(userInput.toLowerCase().charAt(0) == word.charAt(i))
+					{
+						CorrectLetter temp = new CorrectLetter(word.charAt(i), i);
+						this.guess.addLetter(temp);
+					}
+				}
+				if(guess.isComplete())
+				{
+					correctGuess();
+				}
+			}
+			else
+			{
+				wrongGuess();
+			}
+		}
+		
+		return this.guess;
+	}
+	
+	private void correctGuess()
+	{
+		score++;
+		guess.setScore(score);
+		finished = true;
+	}
+	
+	private void wrongGuess()
+	{
+		this.guess.setScore(score);
+		this.guess.wrongGuess();
+		if(guess.getAttempsts() == 0)
+		{
+			score--;
+			finished = true;
+		}
+	}
+	
+	private String generateRandomWord()
+	{
+		Random rand = new Random();
+		int i = rand.nextInt(10);
+		return secretWords[i];
+	}
+	
+	public boolean isFinished()
+	{
+		return finished;
+	}
+}
+package server.model;
+import java.io.*;
+
+public class Guess implements Serializable
+{
+	private CorrectLetter[] letters;
+	private int attemptsLeft;
+	private int score;
+	
+	public Guess(int length, int score)
+	{
+		letters = new CorrectLetter[length];
+		attemptsLeft = 7;
+		this.score = score;
+	}
+	
+	public void addLetter(CorrectLetter a)
+	{
+		letters[a.getPosition()] = a;
+	}
+	
+	public void wrongGuess()
+	{
+		attemptsLeft--;
+	}
+	
+	public void setScore(int newScore)
+	{
+		score = newScore;
+	}
+	
+	public int getAttempsts()
+	{
+		return attemptsLeft;
+	}
+	
+	public boolean isComplete()
+	{
+		for(int i = 0; i<letters.length; i++)
+		{
+			if(letters[i] == null)
+				return false;
+		}
+		return true;
+	}
+	
+	public String toString()
+	{
+		String toReturn = "[";
+		for(int i = 0; i<letters.length; i++)
+		{
+			if(letters[i] != null)
+			{
+				toReturn = toReturn + letters[i];
+			}
+			else
+			{
+				toReturn = toReturn + " _ ";
+			}
+		}
+		
+		return toReturn +"]" + "\t" + Integer.toString(attemptsLeft) + "\t" + Integer.toString(score);
+	}
+}
+package server.model;
+import java.io.*;
+
+public class CorrectLetter implements Serializable
+{
+	private char letter;
+	private int position;
+	
+	public CorrectLetter (char letter, int position)
+	{
+		this.letter = letter;
+		this.position = position;
+	}
+	
+	@Override
+	public String toString()
+	{
+		return Character.toString(letter);
+	}
+	
+	public int getPosition()
+	{
+		return position;
+	}
+}
+package server.controller;
+import java.net.*;
+
+public class Controller
+{
+	public void newClient(Socket client)
+	{
+		Thread t = new ClientHandler(client);
+		t.start();
+	}
+}
+package server.controller;
+import java.net.*;
+import java.io.*;
+import server.model.*;
+
+public class ClientHandler extends Thread
+{
+	private Socket client;
+	private BufferedReader input;
+	private ObjectOutputStream output;
+	private static String message; 
+	
+	public ClientHandler(Socket client)
+	{
+		this.client = client;
+	}
+	
+	@Override
+	public void run()
+	{
+		try
+		{
+			input = new BufferedReader(new InputStreamReader(client.getInputStream()));
+			output = new ObjectOutputStream(client.getOutputStream());
+			HangmanGame hangman = new HangmanGame();
+			
+			
+			while(true)
+			{
+				message = input.readLine();
+				
+				if(message.equals("***CLOSE***"))
+				{
+					output.writeObject(null);
+					output.close();
+					break;
+				}
+				else if(message.equals("Start Game"))
+				{
+					output.writeObject(hangman.startGame());
+					output.reset();
+					output.flush();
+				}
+				
+				else if(!hangman.isFinished())
+				{
+					output.writeObject(hangman.userGuess(message));
+					output.reset();
+					output.flush();
+				}
+				
+				else
+				{
+					System.out.println(">Client " + message);
+				}
+			}
+		}
+		catch(IOException e)
+		{
+			System.out.println("Couldn't get input/output stream");
+		}
+	}
+}
+
+package client.io;
+import java.io.*;
+import java.util.Scanner;
+
+public class MessageSend extends Thread
+{
+	private PrintWriter output;
+	private static Scanner in;
+	private String message;
+	
+	public MessageSend(PrintWriter output)
+	{
+		this.output = output;
+		in = new Scanner(System.in);
+	}
+	
+	@Override
+	public void run()
+	{
+		while(true)
+		{
+			System.out.println("getting input");
+			message = in.nextLine();
+			output.println(message);
+			output.flush();
+			if (message.equals("***CLOSE***"))
+			{
+				break;
+			}
+		}
+	}
+}
+package client.io;
+import java.io.*;
+
+public class MessageReceive extends Thread
+{
+	private ObjectInputStream oi;
+	private Object object;
+	private InputStream input;
+
+	public MessageReceive(InputStream input)
+	{
+		this.input = input;
+		try
+		{
+			oi = new ObjectInputStream(input);
+		} 
+		catch (IOException e)
+		{
+			e.printStackTrace();
+		}
+	}
+	
+	@Override
+	public void run()
+	{
+		try
+		{
+			while((object = oi.readObject()) != null)
+			{
+				System.out.println(object);
+				
+			}
+		}
+		catch(Exception e)
+		{
+			e.printStackTrace();
+			System.out.println("Something went wrong...");
+		}
+	}
+}
+package client;
+import java.io.*;
+import java.net.*;
+import client.io.*;
+
+public class Client 
+{
+	private static InetAddress host;
+	private static final int PORT = 1234;
+	private static Socket client;
+	private static String message;
+	
+	public static void main(String[]args)
+	{
+		try
+		{
+			host = InetAddress.getLocalHost();
+			accessServer();
+		}
+		catch(IOException e)
+		{
+			System.out.println("Could not initiate connection");
+		}
+	}
+	
+	private static synchronized void accessServer()
+	{
+		try
+		{
+			client = new Socket(host, PORT);
+			Thread receiver = new MessageReceive(client.getInputStream());
+			receiver.start();
+			Thread sender = new MessageSend(new PrintWriter(client.getOutputStream(), true));
+			sender.start();
+			sender.join();
+			receiver.join();
+			System.out.println("CONNECTION CLOSED");
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+		}
+	}
+}
